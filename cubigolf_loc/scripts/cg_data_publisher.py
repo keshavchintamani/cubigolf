@@ -4,11 +4,9 @@ import time
 import rospy
 import tf.transformations
 import serial
-
 from sensor_msgs.msg import Imu, MagneticField, NavSatFix
 
 D2R = 0.0174533
-
 
 class SerialReader():
     def __init__(self, devid):
@@ -29,9 +27,7 @@ class SerialReader():
         #    raise IOError
 
     def readserial(self):
-        # line = self.Serial.readline()
 
-        # res = re.findall("[-+]?\d+[\.]?\d*", line)
         try:
             line = self._readline()
             return (line)
@@ -41,7 +37,7 @@ class SerialReader():
             pass
 
     def _readline(self):
-        eol = b'\r'
+        eol = '\r\n'
         leneol = len(eol)
         line = bytearray()
         while True:
@@ -52,7 +48,7 @@ class SerialReader():
                     break
             else:
                 break
-        return bytes(line)
+        return bytes(line[:-leneol])
 
     def writeserial(self, message):
         try:
@@ -63,6 +59,19 @@ class SerialReader():
             raise IOError
         return (False);
 
+def splitString(str):
+
+    split = str.split(';')
+    print split
+    vals = []
+
+    for i in range(1, len(split)):
+            try:
+                vals.append(float(split[i]))
+            except ValueError:
+                pass
+    header = split[0]
+    return (header, vals)
 
 def Start():
 
@@ -73,7 +82,7 @@ def Start():
     navsat_pub = rospy.Publisher("/cubigolf/gps", NavSatFix, queue_size=10)
     magneto_pub = rospy.Publisher("/cubigolf/magneticfield", MagneticField, queue_size=10)
 
-    r = rospy.Rate(50) # 10hz
+    r = rospy.Rate(10) # 10hz
     gyro = Imu()
     rtk = NavSatFix()
     magneto = MagneticField()
@@ -82,46 +91,52 @@ def Start():
     Serial = SerialReader('/dev/ttyUSB0')
     while not rospy.is_shutdown():
 
-        #TODO Read Serial Interface
-        gotthis = Serial.readserial();
-        print "got this: {}".format(gotthis)
+        received = Serial.readserial();
+        (header, vals) = splitString(received)
 
-        gyro.header.stamp = rospy.Time.now()
-        #Populate the pose message
-        gyro.orientation.x = 0
-        gyro.orientation.y = 0
-        gyro.orientation.z = 0
-        gyro.orientation.w = 0
+        if header == "IMU":
+            gyro.header.stamp = rospy.Time.now()
+            #Populate the pose message
 
-        #convert euler into quaternion
-        #quat = tf.transformations.quaternion_from_euler(sense.get_orientation_degrees()['pitch']*D2R, \
-        #                                        sense.get_orientation_degrees()['roll'] * D2R, \
-        #                                        sense.get_orientation_degrees()['yaw'] * D2R)
-        gyro.angular_velocity.x = 0
-        gyro.angular_velocity.y = 0
-        gyro.angular_velocity.z = 0
+            roll = vals[0]
+            pitch = vals[1]
+            yaw = vals[2]
+            #convert euler into quaternion
+            quat = tf.transformations.quaternion_from_euler(pitch*D2R,roll * D2R, yaw * D2R)
+            gyro.orientation.x = quat[0]
+            gyro.orientation.y = quat[1]
+            gyro.orientation.z = quat[2]
+            gyro.orientation.w = quat[3]
 
-        gyro.linear_acceleration.x = 0
-        gyro.linear_acceleration.y = 0
-        gyro.linear_acceleration.z = 0
+            gyro.angular_velocity.x = vals[9]
+            gyro.angular_velocity.y = vals[10]
+            gyro.angular_velocity.z = vals[11]
 
-        #Populate the magneto message
-        magneto.header.stamp = rospy.Time.now()
-        magneto.magnetic_field.x = 0
-        magneto.magnetic_field.y = 0
-        magneto.magnetic_field.z = 0
-
-        #Populate navfix message
-        rtk.header.stamp = rospy.Time.now()
-        rtk.latitude = 0
-        rtk.longitude = 0
-        rtk.altitude = 0
-
-        #Publish the messages
-        pose_pub.publish(gyro)
-        magneto_pub.publish(magneto)
-        navsat_pub.publish(rtk)
-
+            gyro.linear_acceleration.x = vals[3]
+            gyro.linear_acceleration.y = vals[4]
+            gyro.linear_acceleration.z = vals[5]
+            pose_pub.publish(gyro)
+        #elif header == "COMPASS":
+        #    #Populate the magneto message
+        #    magneto.header.stamp = rospy.Time.now()
+        #    magneto.magnetic_field.x = 0
+        #    magneto.magnetic_field.y = 0
+        #    magneto.magnetic_field.z = 0
+        #    magneto_pub.publish(magneto)
+        elif header == "GPS":
+            #Populate navfix message
+            rtk.header.stamp = rospy.Time.now()
+            rtk.latitude = vals[0]
+            rtk.longitude = vals[1]
+            if vals[2] > 4:
+                rtk.status.status = 0
+            else:
+                rtk.status.status = 1
+            navsat_pub.publish(rtk)
+        elif header =="ODO":
+            vel = vals[0]#Do somethins
+        else:
+            rospy.logerr("Invalid serial header detected: %s %s", header, vals)
         r.sleep()
 
 if __name__ == '__main__':
