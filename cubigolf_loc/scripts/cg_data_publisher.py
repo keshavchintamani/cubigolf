@@ -1,12 +1,33 @@
 #!/usr/bin/env python
 
+"""
+cg_data_publisher reads a serial interface, captures and publishes IMU, GPS, wheel speed and steering angle topics
+It provides a naive example of a odometry topic for a differential wheel robot.
+This needs to be transformed into an ackermann platform's at some point
+"""
+
 import time
+import math
+import serial
 import rospy
 import tf.transformations
-import serial
+import random as Rand
 from sensor_msgs.msg import Imu, MagneticField, NavSatFix
+from std_msgs.msg import Float32
+from nav_msgs.msg import Odometry
+
+__author__ = "Keshav Chintamani"
+__copyright__ = "Copyright 2017, The Cubigolf Project"
+__credits__ = ["Keshav Chintamani", "Jacob Carballido"]
+__license__ = "GPL"
+__version__ = "0.0.1"
+__maintainer__ = "Keshav Chintamani"
+__email__ = "keshav.chintamani@gmail.com"
+__status__ = "Devel"
+
 
 D2R = 0.0174533
+Vehicle_diameter = 1
 
 class SerialReader():
     def __init__(self, devid):
@@ -52,7 +73,7 @@ class SerialReader():
 
     def writeserial(self, message):
         try:
-            self.Serial.write(message);
+            self.Serial.write(message)
             return (True);
         except (IOError, ValueError):
             print("Cannot open serial device: %s", self.devid)
@@ -62,7 +83,6 @@ class SerialReader():
 def splitString(str):
 
     split = str.split(';')
-    print split
     vals = []
 
     for i in range(1, len(split)):
@@ -82,27 +102,35 @@ def Start():
     navsat_pub = rospy.Publisher("/cubigolf/gps", NavSatFix, queue_size=10)
     magneto_pub = rospy.Publisher("/cubigolf/magneticfield", MagneticField, queue_size=10)
 
-    r = rospy.Rate(10) # 10hz
+    odom_pub = rospy.Publisher("/cubigolf/odom", Odometry, queue_size=10)
+
+    freq = 30
+    r = rospy.Rate(freq) # 10hz
+    dt =0
     gyro = Imu()
     rtk = NavSatFix()
+    odom = Odometry()
     magneto = MagneticField()
-
+    wheelspeed = Float32()
+    steeringangle = Float32()
+    vel_oldx = vel_oldy = angle_old = 0
     #Setup Serial interface
     Serial = SerialReader('/dev/ttyUSB0')
     while not rospy.is_shutdown():
 
-        received = Serial.readserial();
+        received = Serial.readserial()
         (header, vals) = splitString(received)
 
         if header == "IMU":
+
             gyro.header.stamp = rospy.Time.now()
             #Populate the pose message
-
+            print header,vals
             roll = vals[0]
             pitch = vals[1]
             yaw = vals[2]
             #convert euler into quaternion
-            quat = tf.transformations.quaternion_from_euler(pitch*D2R,roll * D2R, yaw * D2R)
+            quat = tf.transformations.quaternion_from_euler(roll*D2R,pitch * D2R, yaw * D2R)
             gyro.orientation.x = quat[0]
             gyro.orientation.y = quat[1]
             gyro.orientation.z = quat[2]
@@ -133,8 +161,33 @@ def Start():
             else:
                 rtk.status.status = 1
             navsat_pub.publish(rtk)
+
         elif header =="ODO":
-            vel = vals[0]#Do somethins
+            Rand.seed()
+            vel = Rand.uniform(0,10)
+            angle = -30*D2R
+            time_now = time.time()
+            odom.twist.twist.linear.x = math.cos(angle) * vel
+            odom.twist.twist.linear.y = math.sin(angle) * vel
+            odom.pose.pose.position.x +=  (odom.twist.twist.linear.x) * dt
+            odom.pose.pose.position.y +=  (odom.twist.twist.linear.y) * dt
+
+            quat = tf.transformations.quaternion_from_euler(0, 0, angle)
+            odom.pose.pose.orientation.x = quat[0]
+            odom.pose.pose.orientation.y = quat[1]
+            odom.pose.pose.orientation.z = quat[2]
+            odom.pose.pose.orientation.w = quat[3]
+
+            if not dt == 0:
+                odom.twist.twist.angular.z = (angle) / dt
+
+            angle_old = angle
+            vel_oldx = odom.twist.twist.linear.x
+            vel_oldy = odom.twist.twist.linear.y
+            time_then = time.time()
+            dt = time_now - time_then
+            odom_pub.publish(odom)
+
         else:
             rospy.logerr("Invalid serial header detected: %s %s", header, vals)
         r.sleep()
