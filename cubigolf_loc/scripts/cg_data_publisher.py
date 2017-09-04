@@ -125,7 +125,6 @@ def Start():
 
             gyro.header.stamp = rospy.Time.now()
             #Populate the pose message
-            print header,vals
             roll = vals[0]
             pitch = vals[1]
             yaw = vals[2]
@@ -182,12 +181,9 @@ def Start():
                 odom.twist.twist.angular.z = (angle) / dt
 
             angle_old = angle
-            vel_oldx = odom.twist.twist.linear.x
-            vel_oldy = odom.twist.twist.linear.y
             time_then = time.time()
             dt = time_now - time_then
             odom_pub.publish(odom)
-
         else:
             rospy.logerr("Invalid serial header detected: %s %s", header, vals)
         r.sleep()

@@ -1,9 +1,9 @@
 <launch>
 
     <!-- Setup environment -->
-    <arg name="machine_bot" default = "kc-RPi3-mate"/>
+  <!--  <arg name="machine_bot" default = "kc-RPi3-mate"/>
     <arg name="machine_c2i" default = "kc"/>
-    <arg name="master_uri" default = "http://192.168.1.7:11311"/>
+    <arg name="master_uri" default = "http://192.168.1.12:11311"/>
     <arg name="ip_bot" default = "192.168.1.11"/>
     <arg name="ip_c2i" default = "192.168.1.7"/>
     <arg name="machine_bot_user" default = "keshavchintamani"/>
@@ -12,42 +12,21 @@
     <env name="ROS_MASTER_URI" value="$(arg master_uri)"/>
     <machine name="$(arg machine_c2i)" address="$(arg ip_c2i)" user="$(arg machine_c2i_user)" env-loader="/home/kc/sandbox/external-rospacks/src/trinibot_core/laptop_envloader.sh" timeout="10.0" default="true" />
     <machine name="$(arg machine_bot)" address="$(arg ip_bot)" user="$(arg machine_bot_user)" env-loader="/home/keshavchintamani/trinibot_ws/src/trinibot_core/pi_envloader.sh" timeout="10.0" default="never" />
+    -->
 
-    <!-- Geometry-->
-
-    <node pkg="trinibot_core" type="tbplatformtransform.py" name="tbplatformtransforms" machine="$(arg machine_bot)" respawn="false" output="screen">
-    </node>-->
-    <!-- Image pipeline -->
-    <node pkg="usb_cam" type="usb_cam_node" name="trinibot_camera" args="_autofocus=1 _image_width:=320 _image_height:=240 _pixel_format:=&quot;yuyv&quot;" machine ="$(arg machine_bot)" respawn="false" output="screen">
+    <!-- Launch the GPS and IMU drivers-->
+    <node pkg="cubigolf_loc" type="cg_data_publisher.py" name="core_data" respawn="false" output="screen">
     </node>
+    <!-- Launch the EKF -->
+    <node pkg="robot_localization" type="ekf_localization_node" name="ekf_se" clear_params="true"/>
+    <rosparam command="load" file="$(find cubigolf_loc)/params/cg_ekf.yaml" />
 
-    <node pkg="trinibot_core" type="tbimageflip.py" name="imageflip" machine ="$(arg machine_c2i)" respawn="false" output="screen" >
-        <remap from="/image" to="/trinibot_camera/image_raw/compressed"  />
-        <remap from="/camera_info" to= "/trinibot_camera/camera_info"  />
-    </node>
-
-    <!-- Motion control -->
-    <node pkg="trinibot_core" type="tbmotioncontroller.py" args="/dev/ttyACM0" name="robotcontroller" machine="$(arg machine_bot)" respawn="false" output="screen">
-        <remap from="/velocity_cmd" to="/trinibot_gui/velocity_cmd"  />
-        <remap from="/string_cmd" to= "/trinibot_gui/string_cmd"  />
-    </node>
-
-    <!-- Marker Tracking -->
-
-    <!-- Sensors -->
-    <node pkg="trinibot_core" type="tbsensehat.py" name="sensehat"  machine="$(arg machine_bot)" respawn="false" />
-
-
-
-    <!--GUIs-->
-    <node pkg="image_view" type="image_view" name="aruco_viewer"  args="image:=/trinibot_camera/image_flipped _image_transport:=compressed" machine ="$(arg machine_c2i)" respawn="false" output="screen" />
-    <node pkg="trinibot_core" type="tbteleopgui.py" name="teleoperation_gui" machine="$(arg machine_c2i)" respawn="false" output="screen" />
-
-     <!-- SLAM -->
-    <node pkg="ORB_SLAM2" type="Mono" name="orbslam" args="$(find trinibot_core)/settings/ORBVoc.txt $(find trinibot_core)/settings/color-001-ORBSettings.yaml"  machine="$(arg machine_c2i)" respawn="false">
-        <remap from="/camera/image_raw" to="trinibot_camera/image_flipped/raw"/>
-    </node>
-
+    <!--  Placeholder for output topic remapping
+    <remap from="odometry/filtered" to=""/>
+    <remap from="accel/filtered" to=""/>
+    -->
+    <!-- TODO Optical sensors - camera/lidar drivers -->
+    <!-- TODO Motion control -->
 </launch>
 
 <!--
