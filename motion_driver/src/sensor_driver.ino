@@ -233,17 +233,13 @@ void loop(void)
     #ifdef ADAFRUIT_GPS
         float * gps_vals;
         gps_vals=read_adafruit_gps();
-        SendValueCoordinates(140, gps_vals[0]);
-        SendValueCoordinates(141, gps_vals[1]);
-        SendValue(142, gps_vals[2]); //Speed
-        SendValue(143, gps_vals[3]); //Angle
-        SendValue(144, gps_vals[4]); //Altitude
-        SendValue(145, gps_vals[5]); //fix
-        SendValue(146, gps_vals[6]); //fix quality
-
-        /* Display the floating point data */
-        SendValue(147, potSteerAngle_deg);
-        SendValue(148, wheelSpeed);
+        SendValueCoordinates(140, gps_vals[0]); //lat
+        SendValueCoordinates(141, gps_vals[1]); //long
+        SendValue(78, gps_vals[2]); //Speed
+        SendValue(74, gps_vals[3]); //Angle
+        SendValue(73, gps_vals[4]); //Altitude
+        SendValue(76, gps_vals[5]); //fix
+        SendValue(77, gps_vals[6]); //fix quality
 
     #else
         gps_x_m += random(10);
@@ -261,12 +257,11 @@ void loop(void)
         SendValue(74, heading);
         SendValue(78, speed);
         SendValue(112, potSteerAngle_deg);
-
         /* Display the floating point data */
         SendValue(111, wheelSpeed);
     #endif
 
-  }
+}
   delay(BNO055_SAMPLERATE_DELAY_MS);
 }
 
