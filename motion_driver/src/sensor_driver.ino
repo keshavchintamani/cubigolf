@@ -8,6 +8,7 @@
 
 #define GPSECHO false
 #define ADAFRUIT_GPS true
+#define ECHO false
 #define GPS_DT 10 //Sets the time period for GPS sampling
 
 #ifdef ADAFRUIT_GPS
@@ -61,23 +62,23 @@ typedef union
 void setup(void)
 {
   Serial.begin(115200);
-//  Serial.println("Orientation Sensor Raw Data Test"); Serial.println("");
+  Serial.println("Orientation Sensor Raw Data Test"); Serial.println("");
 
   /* Initialise the sensor */
   if(!bno.begin())
   {
     /* There was a problem detecting the BNO055 ... check your connections */
-    //Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+    Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
     while(1);
   }
 
   //If we're using an ADAFRUIT_GPS, setup a 1Hz timer interrup;
   #ifdef ADAFRUIT_GPS
-    adafruit_timer_setup();
+    //adafruit_timer_setup();
     setup_adafruit_gps();
   #endif
   delay(1000);
-
+   Serial.print("Starting sketch ");
   /* Display the current temperature */
 /*  int8_t temp = bno.getTemp();
   Serial.print("Current Temperature: ");
@@ -134,7 +135,9 @@ void SendValue(uint16_t id, float value)
   msg[j++] = ET;
 
   //print
-  Serial.write(msg,j);
+  #if ECHO == false
+    Serial.write(msg,j);
+  #endif
 }
 
 void SendValueCoordinates(uint16_t id, uint32_t value)
@@ -179,7 +182,9 @@ void SendValueCoordinates(uint16_t id, uint32_t value)
   msg[j++] = ET;
 
   //print
-  Serial.write(msg,j);
+  #if ECHO == false
+    Serial.write(msg,j);
+  #endif
 }
 
 /**************************************************************************/
@@ -198,10 +203,16 @@ void loop(void)
 
   // - VECTOR_LINEARACCEL   - m/s^2
   // - VECTOR_GRAVITY       - m/s^2
+  //Serial.println("Hello world");
   imu::Vector<3> data = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
   SendValue(90, data.x()); //Roll ?
   SendValue(91, data.y()); //Pitch ?
   SendValue(92, data.z()); //Yaw ?
+  #if ECHO == true //Write a sample IMU and GPS value to console
+     Serial.println(data.x());
+     Serial.println(data.y());
+     Serial.println(data.z());
+  #endif
 
   data = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
   SendValue(95, data.x());
@@ -230,18 +241,27 @@ void loop(void)
 
     timeSendGps = millis();
     //GPS and odometry
-    #ifdef ADAFRUIT_GPS
+    #if ADAFRUIT_GPS == true
         float * gps_vals;
         gps_vals=read_adafruit_gps();
-        SendValueCoordinates(140, gps_vals[0]); //lat
-        SendValueCoordinates(141, gps_vals[1]); //long
-        SendValue(78, gps_vals[2]); //Speed
-        SendValue(74, gps_vals[3]); //Angle
-        SendValue(73, gps_vals[4]); //Altitude
-        SendValue(76, gps_vals[5]); //fix
-        SendValue(77, gps_vals[6]); //fix quality
+        //char msg[32];
+        //sprintf(msg, "%f %f %f",gps_vals[0], gps_vals[1], gps_vals[2]);
+        //Serial.println(msg);
 
+        #if ECHO == true //Write a sample IMU and GPS value to console
+            Serial.println(gps_vals[0]);
+            Serial.println(gps_vals[1]);
+        #else
+            SendValue(71, gps_vals[0]); //lat
+            SendValue(72, gps_vals[1]); //long
+            SendValue(78, gps_vals[2]); //Speed
+            SendValue(74, gps_vals[3]); //Angle
+            SendValue(73, gps_vals[4]); //Altitude
+            SendValue(76, gps_vals[5]); //fix
+            SendValue(77, gps_vals[6]); //fix quality
+        #endif
     #else
+     //TODO Jacob's RTK should get published here
         gps_x_m += random(10);
         gps_y_m += random(10);
         heading += (float)random(10)/100;
@@ -262,12 +282,15 @@ void loop(void)
     #endif
 
 }
+
+
   delay(BNO055_SAMPLERATE_DELAY_MS);
 }
 
+
 #ifdef ADAFRUIT_GPS
 
-void adafruit_timer_setup()
+/*void adafruit_timer_setup()
 {
     //set timer1 interrupt at 100Hz
     TCCR1A = 0;// set entire TCCR0A register to 0
@@ -281,7 +304,7 @@ void adafruit_timer_setup()
     TCCR1B |= (1 << CS10) | (1 << CS11);
     // enable timer compare interrupt
     TIMSK1 |= (1 << OCIE1A);
-}
+}*/
 
 void setup_adafruit_gps()
 {
@@ -316,16 +339,6 @@ float* read_adafruit_gps()
         return;  // we can fail to parse a sentence in which case we should just wait for another
     }
 
-    // if millis() or timer wraps around, we'll just reset it
-    if (timer > millis())  timer = millis();
-
-    // approximately every 1 seconds or so, print out the current stats
-    if (millis() - timer > 1000) {
-      timer = millis(); // reset the timer
-
-      char dir[4] ={'N','S', 'E', 'W'};
-      signed int signs[4] = {1,-1, 1, -1};
-
       static float ret[7];
 
       if (GPS.lat ="N") {ret[0]=GPS.latitude;}
@@ -354,7 +367,7 @@ float* read_adafruit_gps()
       Serial.print((int)GPS.fix);
       Serial.print(";");
       Serial.println((int)GPS.fixquality);*/
-    }
+
 }
 
 SIGNAL(TIMER0_COMPA_vect) {
