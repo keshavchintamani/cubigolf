@@ -9,14 +9,16 @@ This needs to be transformed into an ackermann platform's at some point
 import time
 import math
 import serial
+import threading
 import rospy
 import tf.transformations
 import random as Rand
-from sensor_msgs.msg import Imu, MagneticField, NavSatFix
+from sensor_msgs.msg import Imu, MagneticField, NavSatFix, NavSatStatus
 from std_msgs.msg import Float32
 from nav_msgs.msg import Odometry
+from cg_serial_reader import UartPLCDeserializer, messageLib
 
-__author__ = "Keshav Chintamani"
+__author__ = ["Keshav Chintamani", "Jacob Carballido"]
 __copyright__ = "Copyright 2017, The Cubigolf Project"
 __credits__ = ["Keshav Chintamani", "Jacob Carballido"]
 __license__ = "GPL"
@@ -26,168 +28,102 @@ __email__ = "keshav.chintamani@gmail.com"
 __status__ = "Devel"
 
 
-D2R = 0.0174533
-Vehicle_diameter = 1
+def NMEA2WGS84(value):
+    try:
+        sign = int(value/ abs(value))
+        DD = int(float(abs(value))) / 100
+        SS = float(abs(value)) - DD * 100
+        return float((DD + SS / 60)*sign)
+    except ZeroDivisionError:
+        print "Could not convert NMEA to DMS... value is {}".format(value)
 
-class SerialReader():
-    def __init__(self, devid):
-
-        self.devid = devid
-        self._startserial()
-
-    def _startserial(self):
-
-        print("Trying to open Serial arduino: %s ", self.devid)
-        #try:
-        self.Serial = serial.Serial(self.devid, 38400, timeout=1)
-        print("Success: %s ", self.Serial)
-        time.sleep(1)
-        pass
-        #except (IOError, ValueError):
-        #    print("Cannot open serial device: %s", self.devid)
-        #    raise IOError
-
-    def readserial(self):
-
-        try:
-            line = self._readline()
-            return (line)
-
-        except ValueError:
-            print("Value error exception parsing serial data")
-            pass
-
-    def _readline(self):
-        eol = '\r\n'
-        leneol = len(eol)
-        line = bytearray()
-        while True:
-            c = self.Serial.read(1)
-            if c:
-                line += c
-                if line[-leneol:] == eol:
-                    break
-            else:
-                break
-        return bytes(line[:-leneol])
-
-    def writeserial(self, message):
-        try:
-            self.Serial.write(message)
-            return (True);
-        except (IOError, ValueError):
-            print("Cannot open serial device: %s", self.devid)
-            raise IOError
-        return (False);
-
-def splitString(str):
-
-    split = str.split(';')
-    vals = []
-
-    for i in range(1, len(split)):
-            try:
-                vals.append(float(split[i]))
-            except ValueError:
-                pass
-    header = split[0]
-    return (header, vals)
 
 def Start():
 
     rospy.init_node('cubigolf_localization', anonymous=True)
 
     #Setup the publishers
-    pose_pub = rospy.Publisher("/cubigolf/imu", Imu, queue_size= 10)
+    imu_pub = rospy.Publisher("/cubigolf/imu", Imu, queue_size= 10)
     navsat_pub = rospy.Publisher("/cubigolf/gps", NavSatFix, queue_size=10)
     magneto_pub = rospy.Publisher("/cubigolf/magneticfield", MagneticField, queue_size=10)
-
     odom_pub = rospy.Publisher("/cubigolf/odom", Odometry, queue_size=10)
 
-    freq = 30
+    freq = 100
     r = rospy.Rate(freq) # 10hz
-    dt =0
-    gyro = Imu()
-    rtk = NavSatFix()
+    imu = Imu()
+    gps = NavSatFix()
     odom = Odometry()
     magneto = MagneticField()
     wheelspeed = Float32()
     steeringangle = Float32()
     vel_oldx = vel_oldy = angle_old = 0
-    #Setup Serial interface
-    Serial = SerialReader('/dev/ttyUSB0')
+
+    #Start deserializing the code coming in on the serial port
+    myDeco = UartPLCDeserializer('/dev/ttyUSB0')
+    deserializerThread = threading.Thread(target=myDeco.Main, args=())
+    deserializerThread.start()
+
     while not rospy.is_shutdown():
 
-        received = Serial.readserial()
-        (header, vals) = splitString(received)
+        #Populate IMU
+        imu.header.stamp = rospy.Time.now()
+        imu.orientation.x = myDeco.variables.imu_quatX['value']
+        imu.orientation.y = myDeco.variables.imu_quatY['value']
+        imu.orientation.z = myDeco.variables.imu_quatZ['value']
+        imu.orientation.w = myDeco.variables.imu_quatW['value']
 
-        if header == "IMU":
+        imu.angular_velocity.x = myDeco.variables.imu_gyroX_rads['value']
+        imu.angular_velocity.y = myDeco.variables.imu_gyroY_rads['value']
+        imu.angular_velocity.z = myDeco.variables.imu_gyroZ_rads['value']
 
-            gyro.header.stamp = rospy.Time.now()
-            #Populate the pose message
-            roll = vals[0]
-            pitch = vals[1]
-            yaw = vals[2]
-            #convert euler into quaternion
-            quat = tf.transformations.quaternion_from_euler(roll*D2R,pitch * D2R, yaw * D2R)
-            gyro.orientation.x = quat[0]
-            gyro.orientation.y = quat[1]
-            gyro.orientation.z = quat[2]
-            gyro.orientation.w = quat[3]
+        imu.linear_acceleration.x = myDeco.variables.imu_accX_ms2['value']
+        imu.linear_acceleration.y = myDeco.variables.imu_accY_ms2['value']
+        imu.linear_acceleration.z = myDeco.variables.imu_accZ_ms2['value']
+        imu_pub.publish(imu)
 
-            gyro.angular_velocity.x = vals[9]
-            gyro.angular_velocity.y = vals[10]
-            gyro.angular_velocity.z = vals[11]
+        #Populate the magneto message
+        magneto.header.stamp = rospy.Time.now()
+        magneto.magnetic_field.x = myDeco.variables.imu_magX_ut['value']
+        magneto.magnetic_field.y = myDeco.variables.imu_magY_ut['value']
+        magneto.magnetic_field.z = myDeco.variables.imu_magZ_ut['value']
+        magneto_pub.publish(magneto)
+        #Populate navfix message
 
-            gyro.linear_acceleration.x = vals[3]
-            gyro.linear_acceleration.y = vals[4]
-            gyro.linear_acceleration.z = vals[5]
-            pose_pub.publish(gyro)
-        #elif header == "COMPASS":
-        #    #Populate the magneto message
-        #    magneto.header.stamp = rospy.Time.now()
-        #    magneto.magnetic_field.x = 0
-        #    magneto.magnetic_field.y = 0
-        #    magneto.magnetic_field.z = 0
-        #    magneto_pub.publish(magneto)
-        elif header == "GPS":
-            #Populate navfix message
-            rtk.header.stamp = rospy.Time.now()
-            rtk.latitude = vals[0]
-            rtk.longitude = vals[1]
-            if vals[2] > 4:
-                rtk.status.status = 0
-            else:
-                rtk.status.status = 1
-            navsat_pub.publish(rtk)
+        gps.header.stamp = rospy.Time.now()
+        gps.latitude = myDeco.variables.gps_lat_dms['value']
+        gps.longitude = myDeco.variables.gps_long_dms['value']
+        gps.altitude = myDeco.variables.gps_altitude_m['value']
+        print  gps.latitude,  gps.longitude, gps.altitude
+        #NMEA  0 = Invalid;1 = GPS fix, 2 = DGPS fix
+        #ROS NavSatStatus
+        #int8 STATUS_NO_FIX =  -1        # unable to fix position
+        #int8 STATUS_FIX =      0        # unaugmented fix
+        #int8 STATUS_SBAS_FIX = 1        # with satellite-based augmentation
+        #int8 STATUS_GBAS_FIX = 2        # with ground-based augmentation
+        if myDeco.variables.gps_fix['value'] == 0:
+            gps.status.status = NavSatStatus.STATUS_NO_FIX
+        elif myDeco.variables.gps_fix['value'] == 1:
+            gps.status.status = NavSatStatus.STATUS_FIX
+        elif myDeco.variables.gps_fix['value'] == 2:
+            gps.status.status = NavSatStatus.STATUS_SBAS_FIX # TODO Check FIX assumptions
+        navsat_pub.publish(gps)
 
-        elif header =="ODO":
-            Rand.seed()
-            vel = Rand.uniform(0,10)
-            angle = -30*D2R
-            time_now = time.time()
-            odom.twist.twist.linear.x = math.cos(angle) * vel
-            odom.twist.twist.linear.y = math.sin(angle) * vel
-            odom.pose.pose.position.x +=  (odom.twist.twist.linear.x) * dt
-            odom.pose.pose.position.y +=  (odom.twist.twist.linear.y) * dt
-
-            quat = tf.transformations.quaternion_from_euler(0, 0, angle)
-            odom.pose.pose.orientation.x = quat[0]
-            odom.pose.pose.orientation.y = quat[1]
-            odom.pose.pose.orientation.z = quat[2]
-            odom.pose.pose.orientation.w = quat[3]
-
-            if not dt == 0:
-                odom.twist.twist.angular.z = (angle) / dt
-
-            angle_old = angle
-            time_then = time.time()
-            dt = time_now - time_then
-            odom_pub.publish(odom)
-        else:
-            rospy.logerr("Invalid serial header detected: %s %s", header, vals)
+        #TODO Define an odometry frame for an ackermann platfrom
+        odom.child_frame_id="base_link"
+        odom.twist.twist.linear.x = 0
+        odom.twist.twist.linear.y = 0
+        odom.child_frame_id = "odom"
+        odom.pose.pose.position.x = 0
+        odom.pose.pose.position.y = 0
+        odom.pose.pose.orientation.x = 0
+        odom.pose.pose.orientation.y = 0
+        odom.pose.pose.orientation.z = 0
+        odom.pose.pose.orientation.w = 1
+        odom_pub.publish(odom)
         r.sleep()
 
 if __name__ == '__main__':
+    global deserializerThread
     Start()
+
 

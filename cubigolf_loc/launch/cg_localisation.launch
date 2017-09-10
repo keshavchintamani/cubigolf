@@ -15,7 +15,9 @@
     -->
 
     <!-- Launch the GPS and IMU drivers-->
-    <node pkg="cubigolf_loc" type="cg_data_publisher.py" name="core_data" respawn="false" output="screen">
+    <node pkg="cubigolf_loc" type="cg_data_publisher.py" name="motion_sensors" respawn="false" output="screen">
+    </node>
+    <node pkg="cubigolf_loc" type="cg_platform_transforms.py" name="system_transforms" respawn="false" output="screen">
     </node>
     <!-- Launch the EKF -->
     <node pkg="robot_localization" type="ekf_localization_node" name="ekf_se" clear_params="true"/>

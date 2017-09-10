@@ -1,10 +1,10 @@
-
+#!/usr/bin/env python
 """
 Subscribes to /cubigolf/odom and publishes map-odom and odom-base_link transforms.
 
 We assume the base_link is moving in the odometry frame.
 """
-
+import random as rand
 import rospy
 import tf
 import tf2_ros
@@ -21,19 +21,27 @@ __maintainer__ = "Keshav Chintamani"
 __email__ = "keshav.chintamani@gmail.com"
 __status__ = "devel"
 
+rand.seed()
+robot_x = rand.randint(-10, 10)
+robot_y = rand.randint(-10, 10)
+robot_z = rand.randint(-10, 10)
+
 def handle_odom(odom):
     br = tf2_ros.TransformBroadcaster()
     odom_tr = geometry_msgs.msg.TransformStamped()
     odom_tr.header.stamp = rospy.Time.now()
-    odom_tr.header.frame_id = "map"
-    odom_tr.child_frame_id = "odom"
-    # Assumes the odometry is measured from mid point between the two tracks
-    odom_tr.transform.translation.x = odom_tr.transform.translation.z = \
-        odom_tr.transform.translation.y = 0
-    odom_tr.transform.rotation.x = odom_tr.transform.rotation.z = \
-        odom_tr.transform.rotation.y = 0
-    odom_tr.transform.rotation.w = 1
-    br.sendTransform(odom_tr)
+    # odom_tr.header.frame_id = "map"
+    # odom_tr.child_frame_id = "odom"
+    # # Assumes the odometry is measured from mid point between the two tracks
+    #
+    # odom_tr.transform.translation.x = robot_x
+    # odom_tr.transform.translation.z = robot_y
+    # odom_tr.transform.translation.y = robot_z
+    # odom_tr.transform.rotation.x = 0
+    # odom_tr.transform.rotation.z = 0
+    # odom_tr.transform.rotation.y = 0
+    # odom_tr.transform.rotation.w = 1
+    # br.sendTransform(odom_tr)
 
     baselink_tr = geometry_msgs.msg.TransformStamped()
     baselink_tr.header.stamp = rospy.Time.now()
