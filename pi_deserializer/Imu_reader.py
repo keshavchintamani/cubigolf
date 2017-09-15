@@ -61,13 +61,17 @@ class UartPLCDeserializer:
 		b = ''.join(map(chr, self.cleanBytes[0:2]))
 		msgId = struct.unpack('H', b)[0]		
 		
-		if msgId == 71 or msgId == 72 or msgId == 140 or msgId == 141:
+		if msgId == 140 or msgId == 141:
 			b = ''.join(map(chr, self.cleanBytes[2:6]))
 			msgValue = float(struct.unpack('L', b)[0])/100
-			
-		else:		
-			b = ''.join(map(chr, self.cleanBytes[2:6]))
-			msgValue = struct.unpack('<f', b)[0]
+		else:
+			if msgId == 71 or msgId == 72:
+				b = ''.join(map(chr, self.cleanBytes[2:6]))
+				msgValue = float(struct.unpack('l', b)[0])/1000000
+				
+			else:		
+				b = ''.join(map(chr, self.cleanBytes[2:6]))
+				msgValue = struct.unpack('<f', b)[0]
 		
 		for a in dir(self.variables):
 			if not a.startswith('__'):

@@ -8,7 +8,6 @@
 
 #define GPSECHO false
 #define ADAFRUIT_GPS true
-#define ECHO true //Setting true writes to serial monitor instead
 #define GPS_DT 10 //Sets the time period for GPS sampling
 
 #ifdef ADAFRUIT_GPS
@@ -62,23 +61,23 @@ typedef union
 void setup(void)
 {
   Serial.begin(115200);
-  Serial.println("Orientation Sensor Raw Data Test"); Serial.println("");
+//  Serial.println("Orientation Sensor Raw Data Test"); Serial.println("");
 
   /* Initialise the sensor */
   if(!bno.begin())
   {
     /* There was a problem detecting the BNO055 ... check your connections */
-    Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+    //Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
     while(1);
   }
 
   //If we're using an ADAFRUIT_GPS, setup a 1Hz timer interrup;
   #ifdef ADAFRUIT_GPS
-    //adafruit_timer_setup();
+    adafruit_timer_setup();
     setup_adafruit_gps();
   #endif
   delay(1000);
-   Serial.print("Starting sketch ");
+
   /* Display the current temperature */
 /*  int8_t temp = bno.getTemp();
   Serial.print("Current Temperature: ");
@@ -135,11 +134,8 @@ void SendValue(uint16_t id, float value)
   msg[j++] = ET;
 
   //print
-  #if ECHO == false
-    Serial.write(msg,j);
-  #endif
+  Serial.write(msg,j);
 }
-
 
 void SendValueCoordinates(uint16_t id, uint32_t value)
 {
@@ -183,9 +179,50 @@ void SendValueCoordinates(uint16_t id, uint32_t value)
   msg[j++] = ET;
 
   //print
-  #if ECHO == false
-    Serial.write(msg,j);
-  #endif
+  Serial.write(msg,j);
+}
+
+void SendValueCoordinatesDeg(uint16_t id, int32_t value)
+{
+  byte data[10];
+  byte data2[20];
+  byte msg[30];
+  int m = 0;
+
+  data[m++] = (byte) id;
+  data[m++] = (byte) id >> 8;
+  data[m++] =  (byte) value;
+  data[m++] =  (byte) (value >> 8);
+  data[m++] =  (byte) (value >> 16);
+  data[m++] =  (byte) (value >> 24);
+
+  //compose the final msg with checkSum
+  int n = 0;
+  int chSum = 0;
+  for (byte i=0;i<m;i++)
+  {
+    data2[n++] = data[i];
+    chSum ^= data2[n-1];
+  }
+  data2[n++] = (byte)chSum;
+  data2[n++] = (byte)chSum >> 8;
+
+ //Check for ST & ET within the data and checksum and mark them as data using ST
+ int j = 0;
+ msg[j++] = ST; //add start transmission
+ for (byte i=0;i<n;i++)
+  {
+    msg[j++] = data2[i];
+    if (data2[i] == ST or data2[i] == ET)
+    {//mark as transparent
+      msg[j++] = ST;
+    }
+  }
+  msg[j++] = ST;
+  msg[j++] = ET;
+
+  //print
+  Serial.write(msg,j);
 }
 
 /**************************************************************************/
@@ -204,12 +241,10 @@ void loop(void)
 
   // - VECTOR_LINEARACCEL   - m/s^2
   // - VECTOR_GRAVITY       - m/s^2
-  //Serial.println("Hello world");
   imu::Vector<3> data = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
   SendValue(90, data.x()); //Roll ?
   SendValue(91, data.y()); //Pitch ?
   SendValue(92, data.z()); //Yaw ?
-
 
   data = bno.getVector(Adafruit_BNO055::VECTOR_ACCELEROMETER);
   SendValue(95, data.x());
@@ -238,12 +273,18 @@ void loop(void)
 
     timeSendGps = millis();
     //GPS and odometry
-    #if ADAFRUIT_GPS == true
+    #ifdef ADAFRUIT_GPS
         float * gps_vals;
-        read_adafruit_gps();
+        gps_vals=read_adafruit_gps();
+        SendValueCoordinatesDeg(71, (int32_t) (gps_vals[0]*1000000)); //lat scale to 10^6
+        SendValueCoordinatesDeg(72, (int32_t) (gps_vals[1]*1000000)); //long scale to 10^6
+        SendValue(78, gps_vals[2]); //Speed
+        SendValue(74, gps_vals[3]); //Angle
+        SendValue(73, gps_vals[4]); //Altitude
+        SendValue(76, gps_vals[5]); //fix
+        SendValue(77, gps_vals[6]); //fix quality
 
     #else
-     //TODO Jacob's RTK should get published here
         gps_x_m += random(10);
         gps_y_m += random(10);
         heading += (float)random(10)/100;
@@ -264,12 +305,26 @@ void loop(void)
     #endif
 
 }
-
-
   delay(BNO055_SAMPLERATE_DELAY_MS);
 }
 
 #ifdef ADAFRUIT_GPS
+
+void adafruit_timer_setup()
+{
+    //set timer1 interrupt at 100Hz
+    TCCR1A = 0;// set entire TCCR0A register to 0
+    TCCR1B = 0;// same for TCCR0B
+    TCNT1  = 0;//initialize counter value to 0
+    // set compare match register for 2khz increments
+    OCR1A = 2500;// = (16*10^6) / (100*64) - 1 (must be >256)
+    // turn on CTC mode
+    TCCR1B |= (1 << WGM12);
+    // Set CS01 and CS00 bits for 64 prescaler
+    TCCR1B |= (1 << CS10) | (1 << CS11);
+    // enable timer compare interrupt
+    TIMSK1 |= (1 << OCIE1A);
+}
 
 void setup_adafruit_gps()
 {
@@ -281,7 +336,7 @@ void setup_adafruit_gps()
     useInterrupt(true);
 }
 
-void read_adafruit_gps()
+float* read_adafruit_gps()
 {
     // in case you are not using the interrupt above, you'll
     // need to 'hand query' the GPS, not suggested :(
@@ -300,58 +355,49 @@ void read_adafruit_gps()
       // so be very wary if using OUTPUT_ALLDATA and trytng to print out data
       //Serial.println(GPS.lastNMEA());   // this also sets the newNMEAreceived() flag to false
 
-    /* if (GPS.lat =="N")
-      { ret[0]= gps_lat_deg;}
-      else
-      { ret[0]=-gps_lat_deg;}
-      if (GPS.lon =="E")
-      { ret[1]= gps_lon_deg;}
-      else
-      { ret[1]=-gps_lon_deg;}
+      if (!GPS.parse(GPS.lastNMEA()))   // this also sets the newNMEAreceived() flag to false
+        return;  // we can fail to parse a sentence in which case we should just wait for another
+    }
+
+    // if millis() or timer wraps around, we'll just reset it
+    if (timer > millis())  timer = millis();
+
+    // approximately every 1 seconds or so, print out the current stats
+    if (millis() - timer > 1000) {
+      timer = millis(); // reset the timer
+
+      char dir[4] ={'N','S', 'E', 'W'};
+      signed int signs[4] = {1,-1, 1, -1};
+
+      static float ret[7];
+
+      if (GPS.lat ="N") {ret[0]=GPS.latitude;}
+      else {ret[0]=-GPS.latitude;}
+      if (GPS.lat ="E") {ret[0]=GPS.longitude;}
+      else {ret[0]=-GPS.longitude;}
       ret[2]=GPS.speed;
       ret[3]=GPS.angle;
       ret[4]=GPS.altitude;
       ret[5]=GPS.fix;
       ret[6]=GPS.fixquality;
-      return(ret);*/
+      return(ret);
 
-      if (!GPS.parse(GPS.lastNMEA()))   // this also sets the newNMEAreceived() flag to false
-        return;  // we can fail to parse a sentence in which case we should just wait for another
+     /* Serial.print(GPS.latitude, 4);
+      Serial.print(GPS.lat);
+      Serial.print(";");
+      Serial.print(GPS.longitude, 4);
+      Serial.print(GPS.lon);
+      Serial.print(";");
+      Serial.print(GPS.speed);
+      Serial.print(";");
+      Serial.print(GPS.angle);
+      Serial.print(";");
+      Serial.print(GPS.altitude);
+      Serial.print(";");
+      Serial.print((int)GPS.fix);
+      Serial.print(";");
+      Serial.println((int)GPS.fixquality);*/
     }
-    float gps_lat_deg = convertNMEAtoWGS84(GPS.latitude);
-    float gps_lon_deg = convertNMEAtoWGS84(GPS.longitude);
-
-    #if ECHO == true //Write a sample IMU and GPS value to console
-        Serial.print(gps_lat_deg,4);
-        Serial.print(" ");
-        Serial.println(gps_lon_deg,4);
-        Serial.print(GPS.latitude);
-        Serial.print(" ");
-        Serial.println(GPS.longitude);
-        Serial.print(GPS.lat);
-        Serial.print(" ");
-        Serial.println(GPS.lon);
-    #else
-        SendValue(301,gps_lat_deg); //lat
-        SendValue(302,gps_lon_deg); //long
-        SendValue(78, GPS.speed); //Speed
-        SendValue(74, GPS.angle); //Angle
-        SendValue(73, GPS.altitude); //Altitude
-        SendValue(76, GPS.fix); //fix
-        SendValue(77, GPS.fixquality); //fix quali
-    #endif
-
-
-
-}
-
-float convertNMEAtoWGS84(float value)
-{
-     //sign = int(value/ abs(value))
-     int DD = int(float(abs(value))) / 100;
-     float SS = float(abs(value)) - DD * 100;
-     float res = (DD + SS / 60);
-     return res;
 }
 
 SIGNAL(TIMER0_COMPA_vect) {
